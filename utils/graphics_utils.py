@@ -13,6 +13,7 @@ import torch
 import math
 import numpy as np
 from typing import NamedTuple
+from scipy.spatial.transform import Rotation as R
 
 class BasicPointCloud(NamedTuple):
     points : np.array
@@ -27,6 +28,42 @@ def geom_transform_points(points, transf_matrix):
 
     denom = points_out[..., 3:] + 0.0000001
     return (points_out[..., :3] / denom).squeeze(dim=0)
+
+
+def geom_transform_quat(quats, transf_matrix):
+    assert quats.shape[1] == 4 and transf_matrix.shape == (4, 4)
+
+    # 1. 提取旋转部分
+    R_np = transf_matrix[:3, :3].cpu().numpy()
+    R_quat_np = R.from_matrix(R_np).as_quat()  # [x, y, z, w]
+    R_quat = torch.from_numpy(R_quat_np).to(quats.device).float()
+
+    # 2. 四元数运算函数
+    def quat_multiply(q1, q2):
+        x1, y1, z1, w1 = q1.unbind(-1)
+        x2, y2, z2, w2 = q2.unbind(-1)
+        return torch.stack(
+            [
+                w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+                w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+                w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+                w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            ],
+            dim=-1,
+        )
+
+    def quat_conjugate(q):
+        return torch.cat([-q[:, :3], q[:, 3:]], dim=-1)
+
+    # 3. 进行共轭变换：q' = R * q * R⁻¹
+    R_quat_batch = R_quat.unsqueeze(0).expand(quats.shape[0], 4)
+    R_conj = quat_conjugate(R_quat_batch)
+    q_out = quat_multiply(quat_multiply(R_quat_batch, quats), R_conj)
+
+    # 4. 归一化结果
+    q_out = q_out / q_out.norm(dim=-1, keepdim=True)
+    return q_out
+
 
 def getWorld2View(R, t):
     Rt = np.zeros((4, 4))

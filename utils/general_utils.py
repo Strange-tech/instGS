@@ -131,3 +131,24 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
+
+
+def random_point_sampling(xyz, n_samples, replace=False):
+    """
+    从 xyz 中随机采样 n_samples 个点的索引。
+
+    参数：
+    - xyz: [N, 3] 点云坐标张量
+    - n_samples: 要采样的点数
+    - replace: 是否允许重复采样
+
+    返回：
+    - [n_samples]，采样的索引
+    """
+    N = xyz.shape[0]
+    idx = (
+        torch.randperm(N, device=xyz.device)[:n_samples]
+        if not replace
+        else torch.randint(0, N, (n_samples,), device=xyz.device)
+    )
+    return idx
