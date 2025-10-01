@@ -16,14 +16,26 @@ from torchvision.utils import save_image
 
 SCENE_NAME = "tomato"
 
-def row_hash(tensor):
-    flat = tensor.view(tensor.shape[0], -1).detach().cpu().numpy()
-    return {tuple(row) for row in flat}
-
 
 def sizeof_tensor(t: torch.Tensor):
     return t.numel() * t.element_size()
 
+def compress(tensor: torch.Tensor, threshold: float):
+    if torch.all(tensor == 0) or torch.all(tensor.abs() < threshold):
+        print("All zero tensor, no need to compress.")
+        
+    flattened = tensor.view(tensor.shape[0], -1)
+    mask = ~(flattened == 0).all(dim=1) & ~(flattened.abs() < threshold).all(dim=1)
+    indices = mask.nonzero(as_tuple=True)[0].to(torch.int)  # int32, 4 bytes
+    values = tensor[mask]  # float32, 4 bytes
+
+    original_size = sizeof_tensor(tensor)
+    sparse_size = sizeof_tensor(indices) + sizeof_tensor(values)
+
+    print(
+        f"Sparse size: {sparse_size/1024:.2f} KB, original size: {original_size/1024:.2f} KB, ratio: {sparse_size/original_size:.4f}"
+    )
+    
 
 if __name__ == "__main__":
 
@@ -42,55 +54,29 @@ if __name__ == "__main__":
 
         for idx in range(template_gs.instances_num):
             print(f"-------------Template {k}, Instance {idx}-------------")
+            print("xyz_offset")
             xyz_offset = template_gs._xyz_offsets[idx]
-            print(
-                "XYZ:",
-                (xyz_offset == 0).sum().item(),
-                xyz_offset.numel(),
-            )
+            compress(xyz_offset, threshold=1e-8)
+
+            print("scaling_offset")
             scaling_offset = template_gs._scaling_offsets[idx]
-            print(
-                "SCALING:",
-                (scaling_offset == 0).sum().item(),
-                scaling_offset.numel(),
-            )
+            compress(scaling_offset, threshold=1e-8)
+
+            print("rotation_offset")
             rotation_offset = template_gs._rotation_offsets[idx]
-            print(
-                "ROTATION:",
-                (rotation_offset == 0).sum().item(),
-                rotation_offset.numel(),
-            )
+            compress(rotation_offset, threshold=1e-8)
 
+            print("feature_dc_offset")
             feature_dc_offset = template_gs._features_dc_offsets[idx]
-            print(
-                "FEATURE_DC:",
-                (feature_dc_offset == 0).sum().item(),
-                feature_dc_offset.numel(),
-            )
+            compress(feature_dc_offset, threshold=1e-8)
 
-            ### focus on feature_rest_offset
+            print("feature_rest_offset")
             feature_rest_offset = template_gs._features_rest_offsets[idx]
-            print(
-                "FEATURE_REST:",
-                (feature_rest_offset == 0).sum().item(),
-                feature_rest_offset.numel(),
-            )
-            # flattened = feature_rest_offset.view(feature_rest_offset.shape[0], -1)
-            # mask = ~(flattened == 0).all(dim=1)
-            # indices = mask.nonzero(as_tuple=True)[0].to(torch.int32)  # int32, 4 bytes
-            # values = feature_rest_offset[mask]  # float32, 4 bytes
-
-            # original_size = sizeof_tensor(feature_rest_offset)
-            # sparse_size = sizeof_tensor(indices) + sizeof_tensor(values)
-
-            # print(
-            #     f"Sparse feature_rest_offset size: {sparse_size/1024:.2f} KB, original size: {original_size/1024:.2f} KB, ratio: {sparse_size/original_size:.4f}"
-            # )
+            compress(feature_rest_offset, threshold=1e-8)
             
+            print("opacity_offset")
             opacity_offset = template_gs._opacity_offsets[idx]
-            print(
-                "OPACITY:", (opacity_offset == 0).sum().item(), opacity_offset.numel()
-            )
+            compress(opacity_offset, threshold=1e-8)
         all_template_gs.append(template_gs)
 
     bg_gaussians = GaussianModel(sh_degree=3)

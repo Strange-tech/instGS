@@ -3,7 +3,7 @@ import open3d as o3d
 import numpy as np
 import json
 
-SCENE_NAME = "tomato"
+SCENE_NAME = "bowls"
 
 if __name__ == "__main__":
 
@@ -14,7 +14,7 @@ if __name__ == "__main__":
     template_group["instances"] = []
     template_group["instances"].append({"instance_id": "1", "transform": np.eye(4).tolist()})
 
-    for i in range(2, 11):
+    for i in range(2, 3):
 
         # 读入点云（支持 ply, pcd 等）
         src = o3d.io.read_point_cloud(f"./data/{SCENE_NAME}/seg_inst/{i}.ply")

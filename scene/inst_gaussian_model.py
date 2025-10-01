@@ -299,6 +299,30 @@ class InstGaussianModel:
     @property
     def get_full_opacity(self):
         return self.opacity_activation(self.full_opacity)
+    
+    @property
+    def get_transforms(self):
+        return torch.stack(self.transforms)
+
+    @property
+    def get_xyz_offsets(self):
+        return torch.stack(self._xyz_offsets)
+    
+    @property
+    def get_scaling_offsets(self):
+        return torch.stack(self._scaling_offsets)
+
+    @property
+    def get_rotation_offsets(self):
+        return torch.stack(self._rotation_offsets)
+
+    @property
+    def get_features_dc_offsets(self):
+        return torch.stack(self._features_dc_offsets)
+
+    @property
+    def get_opacity_offsets(self):
+        return torch.stack(self._opacity_offsets)
 
     def get_covariance(self, scaling_modifier=1):
         return self.covariance_activation(
@@ -928,7 +952,7 @@ class InstGaussianModel:
         )
         self.denom[update_filter] += 1
 
-    def merge(self, all_instances, mode="max"):
+    def merge(self, all_instances, mode="merge"):
         # mode: "max", "merge"
         if mode == "max":
             num = 0

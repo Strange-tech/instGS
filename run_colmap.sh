@@ -1,4 +1,4 @@
-SCENE_NAME=our_office
+SCENE_NAME=bowls
 DATASET_PATH=./data/$SCENE_NAME
 
 # COLMAP

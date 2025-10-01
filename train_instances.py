@@ -24,7 +24,7 @@ except ImportError:
 import torch.nn.functional as F
 
 
-SCENE_NAME = "kitchen"
+SCENE_NAME = "hkust-gz"
 empty_gaussian_threshold = 100
 
 
@@ -306,7 +306,7 @@ if __name__ == "__main__":
             transforms.append(torch.inverse(t))
 
         # 2. 合并所有模型为 shared_model（几何 & shared SH）
-        template_gs.merge(all_instances, mode="merge")
+        template_gs.merge(all_instances, mode="max")
 
         # 3. 为每个实例初始化 SH offset（同 shape）
         xyz_offsets = [
