@@ -13,72 +13,23 @@
 #include "auxiliary.h"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
+#include <ATen/ATen.h>
+
 namespace cg = cooperative_groups;
-
-
-__device__ glm::vec4 quat_normalize(const glm::vec4& q) {
-    float norm = sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-    return q / norm;
-}
-
-__device__ glm::vec4 mat3_to_quat(const glm::mat3& m)
-{
-    float trace = m[0][0] + m[1][1] + m[2][2];
-    float qw, qx, qy, qz;
-    if (trace > 0.0f) {
-        float s = sqrt(trace + 1.0f) * 2.0f; // s = 4 * qw
-        qw = 0.25f * s;
-        qx = (m[2][1] - m[1][2]) / s;
-        qy = (m[0][2] - m[2][0]) / s;
-        qz = (m[1][0] - m[0][1]) / s;
-    } else if ((m[0][0] > m[1][1]) && (m[0][0] > m[2][2])) {
-        float s = sqrt(1.0f + m[0][0] - m[1][1] - m[2][2]) * 2.0f; // s = 4 * qx
-        qw = (m[2][1] - m[1][2]) / s;
-        qx = 0.25f * s;
-        qy = (m[0][1] + m[1][0]) / s;
-        qz = (m[0][2] + m[2][0]) / s;
-    } else if (m[1][1] > m[2][2]) {
-        float s = sqrt(1.0f + m[1][1] - m[0][0] - m[2][2]) * 2.0f; // s = 4 * qy
-        qw = (m[0][2] - m[2][0]) / s;
-        qx = (m[0][1] + m[1][0]) / s;
-        qy = 0.25f * s;
-        qz = (m[1][2] + m[2][1]) / s;
-    } else {
-        float s = sqrt(1.0f + m[2][2] - m[0][0] - m[1][1]) * 2.0f; // s = 4 * qz
-        qw = (m[1][0] - m[0][1]) / s;
-        qx = (m[0][2] + m[2][0]) / s;
-        qy = (m[1][2] + m[2][1]) / s;
-        qz = 0.25f * s;
-    }
-    return glm::vec4(qw, qx, qy, qz);
-}
-
-__device__ glm::vec4 quat_mul(const glm::vec4& q1, const glm::vec4& q2)
-{
-    // 四元数乘法，假定顺序为 (w, x, y, z)
-    float w1 = q1.x, x1 = q1.y, y1 = q1.z, z1 = q1.w;
-    float w2 = q2.x, x2 = q2.y, y2 = q2.z, z2 = q2.w;
-
-    float w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2;
-    float x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2;
-    float y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2;
-    float z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2;
-
-    return glm::vec4(w, x, y, z);
-}
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color.
-__device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, glm::vec3 pos, glm::vec3 campos, const glm::vec3* sh, bool* clamped)
+__device__ glm::vec3 computeColorFromSH(int idx, int point_idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, glm::vec3 dc_offset, bool* clamped)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
-	
+	glm::vec3 pos = means[point_idx];
 	glm::vec3 dir = pos - campos;
 	dir = dir / glm::length(dir);
 
-	glm::vec3 result = SH_C0 * sh[0];
+	glm::vec3* sh = ((glm::vec3*)shs) + point_idx * max_coeffs;
+	glm::vec3 result = SH_C0 * (sh[0] + dc_offset);
 
 	if (deg > 0)
 	{
@@ -200,28 +151,20 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 
 // Perform initial steps for each Gaussian prior to rasterization.
 template<int C>
-__global__ void preprocessCUDA_instancing(int P, int D, int M,
-	// 模板参数
-	int num_gaussians,
-	const float* means3D_template,        
-	const glm::vec3* scaling_template,        
-    const glm::vec4* rotation_template,       
-    const float* shs_template,            
-    const float* opacity_template,        
-	// 实例变换与offset
-    const glm::mat4* instance_transforms, 	  
-    const float* xyz_offsets,            
-    const glm::vec3* scaling_offsets,        
-    const glm::vec4* rotation_offsets,       
-    const float* shs_offsets,             
-    const float* opacity_offsets,         
-	// 渲染相关参数
+__global__ void preprocessCUDA(int P, int G, int I, int D, int M,
+	const float* orig_points,
+	const glm::vec3* scales,
+	const float scale_modifier,
+	const glm::vec4* rotations,
+	const float* opacities,
+	const float* shs,
 	bool* clamped,
 	const float* cov3D_precomp,
 	const float* colors_precomp,
 	const float* viewmatrix,
 	const float* projmatrix,
 	const glm::vec3* cam_pos,
+	const float* instance_transforms,  // 新增的实例变换矩阵
 	const int W, int H,
 	const float tan_fovx, float tan_fovy,
 	const float focal_x, float focal_y,
@@ -234,33 +177,38 @@ __global__ void preprocessCUDA_instancing(int P, int D, int M,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	bool prefiltered,
-	bool antialiasing
-)
+	bool antialiasing,
+	const float* xyz_offsets,
+	const float* opacity_offsets,
+	const float* sh_offsets)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P)
 		return;
-
-	// 假设P = num_instances * num_gaussians
-    // 计算属于哪个instance和哪个gaussian
-	int instance_id = idx / num_gaussians;
-    int gaussian_id = idx % num_gaussians;
-
-    glm::mat4 T = instance_transforms[instance_id];
-    glm::vec4 mean = glm::vec4(
-        means3D_template[3 * gaussian_id + 0],
-        means3D_template[3 * gaussian_id + 1],
-        means3D_template[3 * gaussian_id + 2],
-        1.0f
-    );
-	glm::vec4 transformed = T * mean;
 	
-	// 1. xyz
+	int instance_idx = idx / G;
+	int point_idx    = idx % G;
+
+	// printf("%d %d\n", instance_idx, point_idx);
+
 	float3 p_orig = {
-        transformed.x + (xyz_offsets ? xyz_offsets[3 * idx + 0] : 0.0f),
-        transformed.y + (xyz_offsets ? xyz_offsets[3 * idx + 1] : 0.0f),
-        transformed.z + (xyz_offsets ? xyz_offsets[3 * idx + 2] : 0.0f)
-    };
+		orig_points[3 * point_idx + 0],
+		orig_points[3 * point_idx + 1],
+		orig_points[3 * point_idx + 2]
+	};
+	int inst_point_idx = G * instance_idx * 3 + point_idx * 3;
+	float3 p_offset = {
+		xyz_offsets[inst_point_idx + 0],
+		xyz_offsets[inst_point_idx + 1],
+		xyz_offsets[inst_point_idx + 2]
+	};
+	const float* T = instance_transforms + instance_idx * 16;
+	float3 p_world = transformPoint4x3(p_orig, T);  // 应用实例变换矩阵和偏移
+	p_world.x += p_offset.x;
+	p_world.y += p_offset.y;
+	p_world.z += p_offset.z;
+
+	glm::vec4 r_world = transformRotation(rotations[point_idx], T);
 
 	// Initialize radius and touched tiles to 0. If this isn't changed,
 	// this Gaussian will not be processed further.
@@ -269,40 +217,11 @@ __global__ void preprocessCUDA_instancing(int P, int D, int M,
 
 	// Perform near culling, quit if outside.
 	float3 p_view;
-	if (!in_frustum_instancing(p_orig, viewmatrix, projmatrix, prefiltered, p_view))
+	if (!inst_in_frustum(p_world, viewmatrix, projmatrix, prefiltered, p_view))
 		return;
 
-	// 2. scaling
-	glm::vec3 scaling_raw = scaling_template[gaussian_id] + (scaling_offsets ? scaling_offsets[idx] : glm::vec3(0.0f));
-	glm::vec3 scaling = glm::vec3(
-		expf(scaling_raw.x),
-		expf(scaling_raw.y),
-		expf(scaling_raw.z)
-	);
-
-	// rotation
-	glm::vec4 q_template = rotation_template[gaussian_id];
-    glm::vec4 q_offset = rotation_offsets ? rotation_offsets[idx] : glm::vec4(0.0f);
-    // 将T的旋转部分转为四元数
-    glm::mat3 T_rot = glm::mat3(T);
-    glm::vec4 q_T = mat3_to_quat(T_rot);
-    glm::vec4 rotation_raw = quat_mul(q_T, q_template) + q_offset;
-    glm::vec4 rotation = quat_normalize(rotation);
-
-	// --- 4. shs ---
-    glm::vec3* sh = new glm::vec3[D];
-	sh[0] = glm::vec3(shs_template[D * gaussian_id + 0] + (shs_offsets ? shs_offsets[D * idx + 0] : 0.0f));
-    for (int d = 1; d < D; ++d) {
-		sh[d] = glm::vec3(0.0f);    
-	}
-
-	float opacity_raw = opacity_template[gaussian_id] + (opacity_offsets ? opacity_offsets[idx] : 0.0f);
-	float opacity = sigmoid(opacity_raw);
-	
-	
-
 	// Transform point by projecting
-	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
+	float4 p_hom = transformPoint4x4(p_world, projmatrix);
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
 
@@ -315,12 +234,12 @@ __global__ void preprocessCUDA_instancing(int P, int D, int M,
 	}
 	else
 	{
-		computeCov3D(scaling, 1, rotation, cov3Ds + idx * 6);
+		computeCov3D(scales[point_idx], scale_modifier, r_world, cov3Ds + idx * 6);
 		cov3D = cov3Ds + idx * 6;
 	}
 
 	// Compute 2D screen-space covariance matrix
-	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+	float3 cov = computeCov2D(p_world, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
 
 	constexpr float h_var = 0.3f;
 	const float det_cov = cov.x * cov.z - cov.y * cov.y;
@@ -358,7 +277,12 @@ __global__ void preprocessCUDA_instancing(int P, int D, int M,
 	// spherical harmonics coefficients to RGB color.
 	if (colors_precomp == nullptr)
 	{
-		glm::vec3 result = computeColorFromSH(idx, D, M, glm::vec3(p_orig.x, p_orig.y, p_orig.z), *cam_pos, sh, clamped);
+		glm::vec3 dc_offset = {
+			sh_offsets[inst_point_idx + 0],
+			sh_offsets[inst_point_idx + 1],
+			sh_offsets[inst_point_idx + 2]
+		}; // 应用 SH 偏移
+		glm::vec3 result = computeColorFromSH(idx, point_idx, D, M, (glm::vec3*)orig_points, *cam_pos, shs, dc_offset, clamped);
 		rgb[idx * C + 0] = result.x;
 		rgb[idx * C + 1] = result.y;
 		rgb[idx * C + 2] = result.z;
@@ -369,12 +293,13 @@ __global__ void preprocessCUDA_instancing(int P, int D, int M,
 	radii[idx] = my_radius;
 	points_xy_image[idx] = point_image;
 	// Inverse 2D covariance and opacity neatly pack into one float4
+	float opacity = sigmoid(opacities[point_idx] + opacity_offsets[G * instance_idx + point_idx]); // 应用透明度偏移
+
 
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacity * h_convolution_scaling };
 
-	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 
-	delete[] sh;
+	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
 
 // Main rasterization method. Collaboratively works on one tile per
@@ -535,62 +460,52 @@ void FORWARD::render(
 		depth);
 }
 
-
-void FORWARD::preprocess_instancing(int P, int D, int M,
-	int num_gaussians,
-	const float* means3D_template,        
-	const glm::vec3* scaling_template,        
-    const glm::vec4* rotation_template,       
-    const float* shs_template,            
-    const float* opacity_template,        
-	// 实例变换与offset
-    const glm::mat4* instance_transforms, 	  
-    const float* xyz_offsets,            
-    const glm::vec3* scaling_offsets,        
-    const glm::vec4* rotation_offsets,       
-    const float* shs_offsets,             
-    const float* opacity_offsets, 
-    bool* clamped,
-    const float* cov3D_precomp,
-    const float* colors_precomp,
-    const float* viewmatrix,
-    const float* projmatrix,
-    const glm::vec3* cam_pos,
-    const int W, int H,
-    const float tan_fovx, float tan_fovy,
-    const float focal_x, float focal_y,
-    int* radii,
-    float2* means2D,
-    float* depths,
-    float* cov3Ds,
-    float* rgb,
-    float4* conic_opacity,
-    const dim3 grid,
-    uint32_t* tiles_touched,
-    bool prefiltered,
-    bool antialiasing
-)
+void FORWARD::preprocess(int P, int G, int I, int D, int M,
+	const float* means3D,
+	const glm::vec3* scales,
+	const float scale_modifier,
+	const glm::vec4* rotations,
+	const float* opacities,
+	const float* shs,
+	bool* clamped,
+	const float* cov3D_precomp,
+	const float* colors_precomp,
+	const float* viewmatrix,
+	const float* projmatrix,
+	const glm::vec3* cam_pos,
+	const float* instance_transforms,        // <--- 新增实例变换矩阵参数
+	const int W, int H,
+	const float focal_x, float focal_y,
+	const float tan_fovx, float tan_fovy,
+	int* radii,
+	float2* means2D,
+	float* depths,
+	float* cov3Ds,
+	float* rgb,
+	float4* conic_opacity,
+	const dim3 grid,
+	uint32_t* tiles_touched,
+	bool prefiltered,
+	bool antialiasing,
+	const float* xyz_offsets,
+	const float* opacity_offsets,
+	const float* sh_offsets)
 {
-	preprocessCUDA_instancing<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
-		P, D, M,
-		num_gaussians,
-		means3D_template,
-		scaling_template,
-		rotation_template,
-		shs_template,
-		opacity_template,
-		instance_transforms,
-		xyz_offsets,
-		scaling_offsets,
-		rotation_offsets,
-		shs_offsets,
-		opacity_offsets,
+	preprocessCUDA<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
+		P, G, I, D, M,
+		means3D,
+		scales,
+		scale_modifier,
+		rotations,
+		opacities,
+		shs,
 		clamped,
 		cov3D_precomp,
 		colors_precomp,
 		viewmatrix, 
 		projmatrix,
 		cam_pos,
+		instance_transforms,
 		W, H,
 		tan_fovx, tan_fovy,
 		focal_x, focal_y,
@@ -603,6 +518,9 @@ void FORWARD::preprocess_instancing(int P, int D, int M,
 		grid,
 		tiles_touched,
 		prefiltered,
-		antialiasing
+		antialiasing,
+		xyz_offsets,
+		opacity_offsets,
+		sh_offsets
 		);
 }

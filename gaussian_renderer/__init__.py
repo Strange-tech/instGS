@@ -315,6 +315,12 @@ def instanced_render(
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
+    screenspace_points = torch.zeros_like(temp_gs.get_xyz, dtype=temp_gs.get_xyz.dtype, requires_grad=True, device="cuda") + 0
+    try:
+        screenspace_points.retain_grad()
+    except:
+        pass
+
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height),
         image_width=int(viewpoint_camera.image_width),
@@ -333,8 +339,8 @@ def instanced_render(
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
-    means3D = temp_gs._xyz
-    # means2D = screenspace_points
+    means3D = temp_gs.get_xyz
+    means2D = screenspace_points
     opacity = temp_gs._opacity
         
 
@@ -349,8 +355,8 @@ def instanced_render(
     rotations = None
     cov3D_precomp = None
     
-    scales = temp_gs._scaling
-    rotations = temp_gs._rotation
+    scales = temp_gs.get_scaling
+    rotations = temp_gs.get_rotation
 
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -361,24 +367,25 @@ def instanced_render(
     else:
         colors_precomp = override_color
 
+    transforms = temp_gs.get_transforms.reshape(-1, 16)
 
-    print(type(temp_gs.get_transforms))
+    # print(temp_gs.get_features_dc_offsets.shape)
+
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     rendered_image, radii, depth_image = rasterizer(
-        means3D_template=means3D,
-        scaling_template=scales,
-        rotation_template=rotations,
-        shs_template=shs,
-        opacity_template=opacity,
-        instance_transforms=temp_gs.get_transforms,
-        xyz_offsets=temp_gs.get_xyz_offsets,
-        scaling_offsets=temp_gs.get_scaling_offsets,
-        rotation_offsets=temp_gs.get_rotation_offsets,
-        shs_offsets=temp_gs.get_features_dc_offsets,
-        opacity_offsets=temp_gs.get_opacity_offsets,
-        colors_precomp=colors_precomp,
-        cov3D_precomp=cov3D_precomp,
-    )
+        means3D = means3D,
+        means2D = means2D,
+        shs = shs,
+        colors_precomp = colors_precomp,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        instance_transforms = transforms,
+        cov3D_precomp = cov3D_precomp,
+        xyz_offsets = temp_gs.get_xyz_offsets,
+        opacity_offsets = temp_gs.get_opacity_offsets,
+        sh_offsets = temp_gs.get_features_dc_offsets
+        )
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.

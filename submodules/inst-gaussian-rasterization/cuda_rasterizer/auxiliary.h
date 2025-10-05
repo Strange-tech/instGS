@@ -14,6 +14,7 @@
 
 #include "config.h"
 #include "stdio.h"
+#include <glm/gtc/quaternion.hpp>   // 必须有这个
 
 #define BLOCK_SIZE (BLOCK_X * BLOCK_Y)
 #define NUM_WARPS (BLOCK_SIZE/32)
@@ -66,6 +67,26 @@ __forceinline__ __device__ void getRect(const float2 p, int2 ext_rect, uint2& re
 	};
 }
 
+__forceinline__ __device__ glm::vec4 transformRotation(const glm::vec4& q_local, const float* T) {
+    // 从 T 提取旋转部分 (3x3)
+    glm::mat3 R = glm::mat3(
+        T[0], T[4], T[8],
+        T[1], T[5], T[9],
+        T[2], T[6], T[10]
+    );
+
+    // 转为四元数
+    glm::quat q_T = glm::quat_cast(R);
+
+    // 输入四元数
+    glm::quat q_obj = glm::quat(q_local.w, q_local.x, q_local.y, q_local.z);
+
+    // 合成旋转：先应用 T，再应用对象本身的旋转
+    glm::quat q_world = q_T * q_obj;
+
+    // 返回 vec4 (x,y,z,w)
+    return glm::vec4(q_world.x, q_world.y, q_world.z, q_world.w);
+}
 
 __forceinline__ __device__ float3 transformPoint4x3(const float3& p, const float* matrix)
 {
@@ -175,19 +196,19 @@ __forceinline__ __device__ bool in_frustum(int idx,
 	return true;
 }
 
-__forceinline__ __device__ bool in_frustum_instancing(
-	const float3& p_orig,
+
+__forceinline__ __device__ bool inst_in_frustum(
+	float3& p_world,
 	const float* viewmatrix,
 	const float* projmatrix,
 	bool prefiltered,
 	float3& p_view)
 {
-
 	// Bring points to screen space
-	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
+	float4 p_hom = transformPoint4x4(p_world, projmatrix);
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
-	p_view = transformPoint4x3(p_orig, viewmatrix);
+	p_view = transformPoint4x3(p_world, viewmatrix);
 
 	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))
 	{

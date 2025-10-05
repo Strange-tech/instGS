@@ -24,7 +24,7 @@ except ImportError:
 import torch.nn.functional as F
 
 
-SCENE_NAME = "hkust-gz"
+SCENE_NAME = "dongsheng/15"
 empty_gaussian_threshold = 100
 
 
@@ -127,22 +127,21 @@ def training(
 
         # start_time = time.time()
         render_pkg = instanced_render(
-            viewpoint_cam, all_temp_gs, bg_gs, pipe, background
+            viewpoint_cam, all_temp_gs[0], bg_gs, pipe, background
         )
-        image, viewspace_point_tensor, visibility_filter, radii = (
-            render_pkg["render"],
-            render_pkg["viewspace_points"],
-            render_pkg["visibility_filter"],
-            render_pkg["radii"],
-        )
-        # image = render_pkg["render"]
+        # image, viewspace_point_tensor, visibility_filter, radii = (
+        #     render_pkg["render"],
+        #     render_pkg["viewspace_points"],
+        #     render_pkg["visibility_filter"],
+        #     render_pkg["radii"],
+        # )
+        image = render_pkg["render"]
         # print("render time", time.time() - start_time)
 
         # remove the unseen image
-        # print(visibility_filter.shape)
-        if visibility_filter.sum().item() < empty_gaussian_threshold:
-            # print(f"Iteration {iteration}: No visible points, skipping this iteration.")
-            continue
+        # if visibility_filter.sum().item() < empty_gaussian_threshold:
+        #     # print(f"Iteration {iteration}: No visible points, skipping this iteration.")
+        #     continue
 
         gt_image = viewpoint_cam.original_image.cuda()
 
@@ -205,44 +204,6 @@ def training(
             progress_bar.update()
             if iteration == opt.iterations:
                 progress_bar.close()
-
-            # # Densification
-            # if iteration < opt.densify_until_iter:
-            #     for temp_gs in all_temp_gs:
-            #         if temp_gs._xyz.shape[0] > temp_gs.densify_max:
-            #             continue
-            #         m_n = mask_note[temp_gs.template_id]
-            #         v_f_1 = masked_interval(visibility_filter, m_n[0], m_n[1])
-            #         v_f_2 = visibility_filter[m_n[0] : m_n[1]]
-
-            #         # Keep track of max radii in image-space for pruning
-            #         viewspace_point_tensor_grad = viewspace_point_tensor.grad
-
-            #         temp_gs.max_radii2D[v_f_2] = torch.max(
-            #             temp_gs.max_radii2D[v_f_2], radii[v_f_1]
-            #         )
-            #         temp_gs.add_densification_stats(
-            #             viewspace_point_tensor_grad[m_n[0] : m_n[1]], v_f_2
-            #         )
-
-            #         if (
-            #             iteration > opt.densify_from_iter
-            #             and iteration % opt.densification_interval == 0
-            #         ):
-            #             size_threshold = (
-            #                 20 if iteration > opt.opacity_reset_interval else None
-            #             )
-            #             temp_gs.densify_and_prune(
-            #                 opt.densify_grad_threshold,
-            #                 0.005,
-            #                 scene.cameras_extent,
-            #                 size_threshold,
-            #             )
-
-            #         if iteration % opt.opacity_reset_interval == 0 or (
-            #             dataset.white_background and iteration == opt.densify_from_iter
-            #         ):
-            #             temp_gs.reset_opacity()
 
             # Optimizer step
             if iteration < opt.iterations:

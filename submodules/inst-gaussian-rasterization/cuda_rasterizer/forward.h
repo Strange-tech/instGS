@@ -21,40 +21,36 @@
 namespace FORWARD
 {
 	// Perform initial steps for each Gaussian prior to rasterization.
-	void preprocess_instancing(int P, int D, int M,
-	int num_gaussians,
-	const float* means3D_template,        
-	const glm::vec3* scaling_template,        
-    const glm::vec4* rotation_template,       
-    const float* shs_template,            
-    const float* opacity_template,        
-	// 实例变换与offset
-    const glm::mat4* instance_transforms, 	  
-    const float* xyz_offsets,            
-    const glm::vec3* scaling_offsets,        
-    const glm::vec4* rotation_offsets,       
-    const float* shs_offsets,             
-    const float* opacity_offsets,         
-	// 渲染相关参数
-	bool* clamped,
-	const float* cov3D_precomp,
-	const float* colors_precomp,
-	const float* viewmatrix,
-	const float* projmatrix,
-	const glm::vec3* cam_pos,
-	const int W, int H,
-	const float tan_fovx, float tan_fovy,
-	const float focal_x, float focal_y,
-	int* radii,
-	float2* points_xy_image,
-	float* depths,
-	float* cov3Ds,
-	float* rgb,
-	float4* conic_opacity,
-	const dim3 grid,
-	uint32_t* tiles_touched,
-	bool prefiltered,
-	bool antialiasing);
+	void preprocess(int P, int G, int I, int D, int M,
+		const float* orig_points,
+		const glm::vec3* scales,
+		const float scale_modifier,
+		const glm::vec4* rotations,
+		const float* opacities,
+		const float* shs,
+		bool* clamped,
+		const float* cov3D_precomp,
+		const float* colors_precomp,
+		const float* viewmatrix,
+		const float* projmatrix,
+		const glm::vec3* cam_pos,
+		const float* instance_transforms,  // 新增的实例变换矩阵
+		const int W, int H,
+		const float focal_x, float focal_y,
+		const float tan_fovx, float tan_fovy,
+		int* radii,
+		float2* points_xy_image,
+		float* depths,
+		float* cov3Ds,
+		float* colors,
+		float4* conic_opacity,
+		const dim3 grid,
+		uint32_t* tiles_touched,
+		bool prefiltered,
+		bool antialiasing,
+		const float* xyz_offsets,
+		const float* opacity_offsets,
+		const float* sh_offsets);
 
 	// Main rasterization method.
 	void render(
@@ -72,4 +68,6 @@ namespace FORWARD
 		float* depths,
 		float* depth);
 }
+
+
 #endif

@@ -11,9 +11,10 @@ from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from torchvision.utils import save_image
+import time
 
 
-SCENE_NAME = "hkust-gz"
+SCENE_NAME = "dongsheng/15"
 
 
 def sizeof_tensor(t: torch.Tensor):
@@ -63,15 +64,33 @@ if __name__ == "__main__":
     save_path = f"./output/{SCENE_NAME}/rendered_images"
     os.makedirs(save_path, exist_ok=True)
 
+
     with torch.no_grad():
+        # for debugging
+        # render_img = instanced_render(
+        #     cameras[67], template_gs, None, pp.extract(args), background
+        # )["render"]
+        # save_image(
+        #     render_img,
+        #     f"{save_path}/67.jpg",
+        # )
+
+        avg_render_time = 0.0
+
         for idx, view in enumerate(cameras):
+            start_time = time.time()
             render_img = instanced_render(
                 view, template_gs, None, pp.extract(args), background
             )["render"]
-            save_image(
-                render_img,
-                f"{save_path}/{idx}.jpg",
-            )
+            render_time = time.time() - start_time
+            avg_render_time += render_time
+            # save_image(
+            #     render_img,
+            #     f"{save_path}/{idx}.jpg",
+            # )
 
+    print(f"Total render time for {len(cameras)} views: {avg_render_time:.4f} seconds")
+    avg_render_time /= len(cameras)
     # All done
     print("\nRender complete.")
+    print(f"Average render time: {avg_render_time:.4f} seconds")

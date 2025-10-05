@@ -16,22 +16,14 @@
 #include <string>
 	
 std::tuple<int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-RasterizeInstGaussiansCUDA(
+RasterizeGaussiansCUDA(
 	const torch::Tensor& background,
-	// instancing相关参数
-    const torch::Tensor& means3D_template,        // (num_gaussians, 3)
-    const torch::Tensor& scaling_template,        // (num_gaussians, 3)
-    const torch::Tensor& rotation_template,       // (num_gaussians, 4)
-    const torch::Tensor& shs_template,            // (num_gaussians, D)
-    const torch::Tensor& opacity_template,        // (num_gaussians, 1)
-    const torch::Tensor& instance_transforms,     // (num_instances, 4, 4)
-    const torch::Tensor& xyz_offsets,             // (P, 3)
-    const torch::Tensor& scaling_offsets,         // (P, 3)
-    const torch::Tensor& rotation_offsets,        // (P, 4)
-    const torch::Tensor& shs_offsets,             // (P, D)
-    const torch::Tensor& opacity_offsets,         // (P, 1)
-	// 原有参数
-	const torch::Tensor& colors,
+	const torch::Tensor& means3D,
+    const torch::Tensor& colors,
+    const torch::Tensor& opacity,
+	const torch::Tensor& scales,
+	const torch::Tensor& rotations,
+	const float scale_modifier,
 	const torch::Tensor& cov3D_precomp,
 	const torch::Tensor& viewmatrix,
 	const torch::Tensor& projmatrix,
@@ -39,9 +31,41 @@ RasterizeInstGaussiansCUDA(
 	const float tan_fovy,
     const int image_height,
     const int image_width,
+	const torch::Tensor& sh,
 	const int degree,
 	const torch::Tensor& campos,
+	const torch::Tensor& instance_transforms, // <--- 新增 (I,16)
 	const bool prefiltered,
+	const bool antialiasing,
+	const bool debug,
+	const torch::Tensor& xyz_offsets,		// <--- 新增 offset 系列
+	const torch::Tensor& opacity_offsets,
+	const torch::Tensor& sh_offsets);
+
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+ RasterizeGaussiansBackwardCUDA(
+ 	const torch::Tensor& background,
+	const torch::Tensor& means3D,
+	const torch::Tensor& radii,
+    const torch::Tensor& colors,
+	const torch::Tensor& scales,
+	const torch::Tensor& opacities,
+	const torch::Tensor& rotations,
+	const float scale_modifier,
+	const torch::Tensor& cov3D_precomp,
+	const torch::Tensor& viewmatrix,
+    const torch::Tensor& projmatrix,
+	const float tan_fovx, 
+	const float tan_fovy,
+    const torch::Tensor& dL_dout_color,
+	const torch::Tensor& dL_dout_invdepth,
+	const torch::Tensor& sh,
+	const int degree,
+	const torch::Tensor& campos,
+	const torch::Tensor& geomBuffer,
+	const int R,
+	const torch::Tensor& binningBuffer,
+	const torch::Tensor& imageBuffer,
 	const bool antialiasing,
 	const bool debug);
 		

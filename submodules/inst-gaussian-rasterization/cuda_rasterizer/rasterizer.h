@@ -14,7 +14,6 @@
 
 #include <vector>
 #include <functional>
-#include <glm/glm.hpp>
 
 namespace CudaRasterizer
 {
@@ -33,36 +32,66 @@ namespace CudaRasterizer
 			std::function<char* (size_t)> geometryBuffer,
 			std::function<char* (size_t)> binningBuffer,
 			std::function<char* (size_t)> imageBuffer,
-			const int P, int D, int M,
+			const int P, int G, int I, int D, int M,
 			const float* background,
 			const int width, int height,
-			// --- instancing相关参数 ---
-			int num_gaussians,
-			const float* means3D_template,        // [num_gaussians, 3]
-			const float* scaling_template,        // [num_gaussians, 3]
-			const float* rotation_template,       // [num_gaussians, 4]
-			const float* shs_template,            // [num_gaussians, D]
-			const float* opacity_template,        // [num_gaussians, 1]
-			const float* instance_transforms, // [num_instances]
-			const float* xyz_offsets,             // [P, 3]
-			const float* scaling_offsets,         // [P, 3]
-			const float* rotation_offsets,        // [P, 4]
-			const float* shs_offsets,             // [P, D]
-			const float* opacity_offsets,         // [P, 1]
-			// --- 原有参数 ---
+			const float* means3D,
+			const float* shs,
 			const float* colors_precomp,
+			const float* opacities,
+			const float* scales,
+			const float scale_modifier,
+			const float* rotations,
 			const float* cov3D_precomp,
 			const float* viewmatrix,
 			const float* projmatrix,
 			const float* cam_pos,
+			const float* instance_transforms,
 			const float tan_fovx, float tan_fovy,
 			const bool prefiltered,
 			float* out_color,
 			float* depth,
 			bool antialiasing,
-			int* radii,
-			bool debug);
+			const float* xyz_offsets,
+			const float* opacity_offsets,
+		 	const float* sh_offsets,
+			int* radii = nullptr,
+			bool debug = false);
 
+		static void backward(
+			const int P, int D, int M, int R,
+			const float* background,
+			const int width, int height,
+			const float* means3D,
+			const float* shs,
+			const float* opacities,
+			const float* colors_precomp,
+			const float* scales,
+			const float scale_modifier,
+			const float* rotations,
+			const float* cov3D_precomp,
+			const float* viewmatrix,
+			const float* projmatrix,
+			const float* campos,
+			const float tan_fovx, float tan_fovy,
+			const int* radii,
+			char* geom_buffer,
+			char* binning_buffer,
+			char* image_buffer,
+			const float* dL_dpix,
+			const float* dL_invdepths,
+			float* dL_dmean2D,
+			float* dL_dconic,
+			float* dL_dopacity,
+			float* dL_dcolor,
+			float* dL_dinvdepth,
+			float* dL_dmean3D,
+			float* dL_dcov3D,
+			float* dL_dsh,
+			float* dL_dscale,
+			float* dL_drot,
+			bool antialiasing,
+			bool debug);
 	};
 };
 
