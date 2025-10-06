@@ -161,7 +161,10 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& binningBuffer,
 	const torch::Tensor& imageBuffer,
 	const bool antialiasing,
-	const bool debug)
+	const bool debug,
+	const torch::Tensor& xyz_offsets,
+	const torch::Tensor& opacity_offsets,
+	const torch::Tensor& sh_offsets)
 {
   const int P = means3D.size(0);
   const int H = dL_dout_color.size(1);

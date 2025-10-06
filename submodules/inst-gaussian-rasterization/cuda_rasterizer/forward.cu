@@ -295,9 +295,7 @@ __global__ void preprocessCUDA(int P, int G, int I, int D, int M,
 	// Inverse 2D covariance and opacity neatly pack into one float4
 	float opacity = sigmoid(opacities[point_idx] + opacity_offsets[G * instance_idx + point_idx]); // 应用透明度偏移
 
-
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacity * h_convolution_scaling };
-
 
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }

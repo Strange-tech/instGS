@@ -102,7 +102,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Keep relevant tensors for backward
         ctx.raster_settings = raster_settings
         ctx.num_rendered = num_rendered
-        ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, opacities, geomBuffer, binningBuffer, imgBuffer)
+        ctx.save_for_backward(colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, opacities, geomBuffer, binningBuffer, imgBuffer, xyz_offsets, opacity_offsets, sh_offsets)
         return color, radii, invdepths
 
     @staticmethod
@@ -111,7 +111,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
         raster_settings = ctx.raster_settings
-        colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, opacities, geomBuffer, binningBuffer, imgBuffer = ctx.saved_tensors
+        colors_precomp, means3D, scales, rotations, cov3Ds_precomp, radii, sh, opacities, geomBuffer, binningBuffer, imgBuffer, xyz_offsets, opacity_offsets, sh_offsets = ctx.saved_tensors
 
         # Restructure args as C++ method expects them
         args = (raster_settings.bg,
@@ -137,10 +137,13 @@ class _RasterizeGaussians(torch.autograd.Function):
                 binningBuffer,
                 imgBuffer,
                 raster_settings.antialiasing,
-                raster_settings.debug)
+                raster_settings.debug,
+                xyz_offsets,
+                opacity_offsets,
+                sh_offsets)
 
         # Compute gradients for relevant tensors by invoking backward method
-        grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations = _C.rasterize_gaussians_backward(*args)        
+        grad_means2D, grad_colors_precomp, grad_opacities, grad_means3D, grad_cov3Ds_precomp, grad_sh, grad_scales, grad_rotations, grad_xyz_offsets, grad_opacity_offsets, grad_sh_offsets = _C.rasterize_gaussians_backward(*args)
 
         grads = (
             grad_means3D,
@@ -150,8 +153,12 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_opacities,
             grad_scales,
             grad_rotations,
-            grad_cov3Ds_precomp,
             None,
+            grad_cov3Ds_precomp,
+            grad_xyz_offsets,
+            grad_opacity_offsets,
+            grad_sh_offsets,
+            None
         )
 
         return grads
