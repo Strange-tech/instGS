@@ -353,7 +353,7 @@ int CudaRasterizer::Rasterizer::forward(
 // Produce necessary gradients for optimization, corresponding
 // to forward render pass
 void CudaRasterizer::Rasterizer::backward(
-	const int P, int D, int M, int R,
+	const int P, int G, int D, int M, int R,
 	const float* background,
 	const int width, int height,
 	const float* means3D,
@@ -377,15 +377,21 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dmean2D,
 	float* dL_dconic,
 	float* dL_dopacity,
+	float* dL_dopacity_offsets,
 	float* dL_dcolor,
 	float* dL_dinvdepth,
 	float* dL_dmean3D,
+	float* dL_dxyz_offsets,
 	float* dL_dcov3D,
 	float* dL_dsh,
+	float* dL_dsh_offsets,
 	float* dL_dscale,
 	float* dL_drot,
 	bool antialiasing,
-	bool debug)
+	bool debug,
+	const float* instance_transforms,
+	const float* xyz_offsets,
+	const float* sh_offsets)
 {
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
 	BinningState binningState = BinningState::fromChunk(binning_buffer, R);
@@ -431,7 +437,7 @@ void CudaRasterizer::Rasterizer::backward(
 	// given to us or a scales/rot pair? If precomputed, pass that. If not,
 	// use the one we computed ourselves.
 	const float* cov3D_ptr = (cov3D_precomp != nullptr) ? cov3D_precomp : geomState.cov3D;
-	CHECK_CUDA(BACKWARD::preprocess(P, D, M,
+	CHECK_CUDA(BACKWARD::preprocess(P, G, D, M,
 		(float3*)means3D,
 		radii,
 		shs,
@@ -450,11 +456,17 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dconic,
 		dL_dinvdepth,
 		dL_dopacity,
+		dL_dopacity_offsets,
 		(glm::vec3*)dL_dmean3D,
+		(glm::vec3*)dL_dxyz_offsets,
 		dL_dcolor,
 		dL_dcov3D,
 		dL_dsh,
+		dL_dsh_offsets,
 		(glm::vec3*)dL_dscale,
 		(glm::vec4*)dL_drot,
-		antialiasing), debug);
+		antialiasing,
+		instance_transforms,
+		(float3*)xyz_offsets,
+		(float3*)sh_offsets), debug);
 }

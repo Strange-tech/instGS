@@ -41,8 +41,8 @@ namespace BACKWARD
 		float* dL_dinvdepths);
 
 	void preprocess(
-		int P, int D, int M,
-		const float3* means,
+		int P, int G, int D, int M,
+		const float3* means3D,
 		const int* radii,
 		const float* shs,
 		const bool* clamped,
@@ -51,22 +51,28 @@ namespace BACKWARD
 		const glm::vec4* rotations,
 		const float scale_modifier,
 		const float* cov3Ds,
-		const float* view,
-		const float* proj,
+		const float* viewmatrix,
+		const float* projmatrix,
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
 		const glm::vec3* campos,
 		const float3* dL_dmean2D,
-		const float* dL_dconics,
+		const float* dL_dconic,
 		const float* dL_dinvdepth,
 		float* dL_dopacity,
-		glm::vec3* dL_dmeans,
+		float* dL_dopacity_offsets,
+		glm::vec3* dL_dmean3D,
+		glm::vec3* dL_dxyz_offsets,
 		float* dL_dcolor,
 		float* dL_dcov3D,
 		float* dL_dsh,
+		float* dL_dsh_offsets,
 		glm::vec3* dL_dscale,
 		glm::vec4* dL_drot,
-		bool antialiasing);
+		bool antialiasing,
+		const float* instance_transforms,
+		const float3* xyz_offsets,
+		const float3* sh_offsets);
 }
 
 #endif

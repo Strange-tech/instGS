@@ -978,32 +978,41 @@ class InstGaussianModel:
             self.create_from_pcd(pcd, spatial_lr_scale=0.1)
         elif mode == "merge":
             all_xyz_list = []
-            all_color_list = []
+            all_scales_list = []
+            all_rotations_list = []
+            all_features_dc_list = []
+            all_features_rest_list = []
+            all_opacity_list = []
             num_pts = 0
             for inst in all_instances:
-                xyz = inst.get_xyz  # shape: [M, 3]
-                color = inst.get_features_dc
-                all_xyz_list.append(xyz)
-                all_color_list.append(color)
-                num_pts += xyz.shape[0]
+                all_xyz_list.append(inst._xyz)
+                all_scales_list.append(inst._scaling)
+                all_rotations_list.append(inst._rotation)
+                all_features_dc_list.append(inst._features_dc)
+                all_features_rest_list.append(inst._features_rest)
+                all_opacity_list.append(inst._opacity)
+                num_pts += inst.get_xyz.shape[0]
 
             all_xyz = torch.cat(all_xyz_list, dim=0)  # shape: [total_M, 3]
-            all_color = torch.cat(all_color_list, dim=0)
+            all_scales = torch.cat(all_scales_list, dim=0)
+            all_rotations = torch.cat(all_rotations_list, dim=0)
+            all_opacity = torch.cat(all_opacity_list, dim=0)
+            all_features_rest = torch.cat(all_features_rest_list, dim=0)
+            all_features_dc = torch.cat(all_features_dc_list, dim=0)
 
             # 使用 FPS 从 all_xyz 中采样 max_len 个点
             print("FPS...")
             num_pts = int(num_pts / len(all_instances)) # average num_pts
             # fps_idx = farthest_point_sampling(all_xyz, num_pts)
             sampling_idx = random_point_sampling(all_xyz, num_pts)
-            print("FPS Done.")
-            shared_template_xyz = all_xyz[sampling_idx]  # shape: [max_len, 3]
-            shared_template_color = all_color[sampling_idx].squeeze()
-            pcd = BasicPointCloud(
-                points=shared_template_xyz.detach().cpu().numpy(),
-                colors=shared_template_color.detach().cpu().numpy(),
-                normals=np.zeros((num_pts, 3)),
-            )
-            self.create_from_pcd(pcd, spatial_lr_scale=0.1)
+            print("Sampling Done.")
+
+            self._xyz = nn.Parameter(all_xyz[sampling_idx].to("cuda").requires_grad_(True))
+            self._features_dc = nn.Parameter(all_features_dc[sampling_idx].to("cuda").requires_grad_(True))
+            self._features_rest = nn.Parameter(all_features_rest[sampling_idx].to("cuda").requires_grad_(True))
+            self._opacity = nn.Parameter(all_opacity[sampling_idx].to("cuda").requires_grad_(True))
+            self._scaling = nn.Parameter(all_scales[sampling_idx].to("cuda").requires_grad_(True))
+            self._rotation = nn.Parameter(all_rotations[sampling_idx].to("cuda").requires_grad_(True))
 
     def offset_loss(self):
         offset_loss = 0.0

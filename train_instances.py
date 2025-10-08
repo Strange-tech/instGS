@@ -24,7 +24,7 @@ except ImportError:
 import torch.nn.functional as F
 
 
-SCENE_NAME = "dongsheng/15"
+SCENE_NAME = "tomato"
 empty_gaussian_threshold = 100
 
 
@@ -106,10 +106,10 @@ def training(
 
         iter_start.record()
 
-        offset_loss = 0.0
+        # offset_loss = 0.0
         for temp_gs in all_temp_gs:
-            temp_gs.instancing()
-            offset_loss += temp_gs.offset_loss()
+            # temp_gs.instancing()
+            # offset_loss += temp_gs.offset_loss()
             temp_gs.update_learning_rate(iteration)
             # Every 1000 its we increase the levels of SH up to a maximum degree
             if iteration % 1000 == 0:
@@ -267,7 +267,9 @@ if __name__ == "__main__":
             transforms.append(torch.inverse(t))
 
         # 2. 合并所有模型为 shared_model（几何 & shared SH）
-        template_gs.merge(all_instances, mode="max")
+        template_gs.merge(all_instances, mode="merge")
+
+        template_gs.save_ply("./tmp/template.ply")
 
         # 3. 为每个实例初始化 SH offset（同 shape）
         xyz_offsets = [

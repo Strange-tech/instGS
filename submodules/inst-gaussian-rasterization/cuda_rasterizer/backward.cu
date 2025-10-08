@@ -13,6 +13,7 @@
 #include "auxiliary.h"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
+#include <cstring>
 namespace cg = cooperative_groups;
 
 __device__ __forceinline__ float sq(float x) { return x * x; }
@@ -20,14 +21,14 @@ __device__ __forceinline__ float sq(float x) { return x * x; }
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
-__device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs)
+__device__ void computeColorFromSH(int idx, int point_idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* shs, glm::vec3 dc_offset, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_dshs, glm::vec3* dL_dsh_offsets)
 {
 	// Compute intermediate values, as it is done during forward
-	glm::vec3 pos = means[idx];
+	glm::vec3 pos = means[point_idx];
 	glm::vec3 dir_orig = pos - campos;
 	glm::vec3 dir = dir_orig / glm::length(dir_orig);
 
-	glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
+	glm::vec3* sh = ((glm::vec3*)shs) + point_idx * max_coeffs;
 
 	// Use PyTorch rule for clamping: if clamping was applied,
 	// gradient becomes 0.
@@ -45,10 +46,12 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 
 	// Target location for this Gaussian to write SH gradients to
 	glm::vec3* dL_dsh = dL_dshs + idx * max_coeffs;
+	glm::vec3* dL_dsh_offset = dL_dsh_offsets + idx * max_coeffs;
 
 	// No tricks here, just high school-level calculus.
 	float dRGBdsh0 = SH_C0;
 	dL_dsh[0] = dRGBdsh0 * dL_dRGB;
+	
 	if (deg > 0)
 	{
 		float dRGBdsh1 = -SH_C1 * y;
@@ -127,6 +130,8 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 		}
 	}
 
+	std::memcpy(dL_dsh_offset, dL_dsh, sizeof(glm::vec3) * max_coeffs);
+
 	// The view direction is an input to the computation. View direction
 	// is influenced by the Gaussian's mean, so SHs gradients
 	// must propagate back into 3D position.
@@ -144,7 +149,7 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::
 // Backward version of INVERSE 2D covariance matrix computation
 // (due to length launched as separate kernel before other 
 // backward steps contained in preprocess)
-__global__ void computeCov2DCUDA(int P,
+__global__ void computeCov2DCUDA(int P, int G,
 	const float3* means,
 	const int* radii,
 	const float* cov3Ds,
@@ -154,10 +159,14 @@ __global__ void computeCov2DCUDA(int P,
 	const float* opacities,
 	const float* dL_dconics,
 	float* dL_dopacity,
+	float* dL_dopacity_offsets,
 	const float* dL_dinvdepth,
 	float3* dL_dmeans,
+	float3* dL_dxyz_offsets,
 	float* dL_dcov,
-	bool antialiasing)
+	bool antialiasing,
+	const float* instance_transforms,
+	const float3* xyz_offsets)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
@@ -168,22 +177,31 @@ __global__ void computeCov2DCUDA(int P,
 
 	// Fetch gradients, recompute 2D covariance and relevant 
 	// intermediate forward results needed in the backward.
-	float3 mean = means[idx];
+	int instance_idx = idx / G;
+	int point_idx    = idx % G;
+
+	float3 p_orig = means[point_idx];
+	float3 p_offset = xyz_offsets[idx];
+	const float* Trans = instance_transforms + instance_idx * 16;
+	float3 p_world = transformPoint4x3(p_orig, Trans);  // 应用实例变换矩阵和偏移
+	p_world.x += p_offset.x;
+	p_world.y += p_offset.y;
+	p_world.z += p_offset.z;
+
 	float3 dL_dconic = { dL_dconics[4 * idx], dL_dconics[4 * idx + 1], dL_dconics[4 * idx + 3] };
-	float3 t = transformPoint4x3(mean, view_matrix);
 	
 	const float limx = 1.3f * tan_fovx;
 	const float limy = 1.3f * tan_fovy;
-	const float txtz = t.x / t.z;
-	const float tytz = t.y / t.z;
-	t.x = min(limx, max(-limx, txtz)) * t.z;
-	t.y = min(limy, max(-limy, tytz)) * t.z;
-	
+	const float txtz = p_world.x / p_world.z;
+	const float tytz = p_world.y / p_world.z;
+	p_world.x = min(limx, max(-limx, txtz)) * p_world.z;
+	p_world.y = min(limy, max(-limy, tytz)) * p_world.z;
+
 	const float x_grad_mul = txtz < -limx || txtz > limx ? 0 : 1;
 	const float y_grad_mul = tytz < -limy || tytz > limy ? 0 : 1;
 
-	glm::mat3 J = glm::mat3(h_x / t.z, 0.0f, -(h_x * t.x) / (t.z * t.z),
-		0.0f, h_y / t.z, -(h_y * t.y) / (t.z * t.z),
+	glm::mat3 J = glm::mat3(h_x / p_world.z, 0.0f, -(h_x * p_world.x) / (p_world.z * p_world.z),
+		0.0f, h_y / p_world.z, -(h_y * p_world.y) / (p_world.z * p_world.z),
 		0, 0, 0);
 
 	glm::mat3 W = glm::mat3(
@@ -217,6 +235,7 @@ __global__ void computeCov2DCUDA(int P,
 		const float dL_dopacity_v = dL_dopacity[idx];
 		const float d_h_convolution_scaling = dL_dopacity_v * opacities[idx];
 		dL_dopacity[idx] = dL_dopacity_v * h_convolution_scaling;
+		dL_dopacity_offsets[idx] = dL_dopacity_v * h_convolution_scaling;
 		d_inside_root = (det_cov / det_cov_plus_h_cov) <= 0.000025f ? 0.f : d_h_convolution_scaling / (2 * h_convolution_scaling);
 	} 
 	else
@@ -302,17 +321,17 @@ __global__ void computeCov2DCUDA(int P,
 	float dL_dJ11 = W[1][0] * dL_dT10 + W[1][1] * dL_dT11 + W[1][2] * dL_dT12;
 	float dL_dJ12 = W[2][0] * dL_dT10 + W[2][1] * dL_dT11 + W[2][2] * dL_dT12;
 
-	float tz = 1.f / t.z;
+	float tz = 1.f / p_world.z;
 	float tz2 = tz * tz;
 	float tz3 = tz2 * tz;
 
 	// Gradients of loss w.r.t. transformed Gaussian mean t
 	float dL_dtx = x_grad_mul * -h_x * tz2 * dL_dJ02;
 	float dL_dty = y_grad_mul * -h_y * tz2 * dL_dJ12;
-	float dL_dtz = -h_x * tz2 * dL_dJ00 - h_y * tz2 * dL_dJ11 + (2 * h_x * t.x) * tz3 * dL_dJ02 + (2 * h_y * t.y) * tz3 * dL_dJ12;
+	float dL_dtz = -h_x * tz2 * dL_dJ00 - h_y * tz2 * dL_dJ11 + (2 * h_x * p_world.x) * tz3 * dL_dJ02 + (2 * h_y * p_world.y) * tz3 * dL_dJ12;
 	// Account for inverse depth gradients
 	if (dL_dinvdepth)
-	dL_dtz -= dL_dinvdepth[idx] / (t.z * t.z);
+	dL_dtz -= dL_dinvdepth[idx] / (p_world.z * p_world.z);
 
 
 	// Account for transformation of mean to t
@@ -323,6 +342,7 @@ __global__ void computeCov2DCUDA(int P,
 	// that is caused because the mean affects the covariance matrix.
 	// Additional mean gradient is accumulated in BACKWARD::preprocess.
 	dL_dmeans[idx] = dL_dmean;
+	dL_dxyz_offsets[idx] = dL_dmean;
 }
 
 // Backward pass for the conversion of scale and rotation to a 
@@ -397,7 +417,7 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 // (those are handled by a previous kernel call)
 template<int C>
 __global__ void preprocessCUDA(
-	int P, int D, int M,
+	int P, int G, int D, int M, // P: number of all rendered Gaussians, G: number of template Gaussians
 	const float3* means,
 	const int* radii,
 	const float* shs,
@@ -408,29 +428,44 @@ __global__ void preprocessCUDA(
 	const float* proj,
 	const glm::vec3* campos,
 	const float3* dL_dmean2D,
-	glm::vec3* dL_dmeans,
+	glm::vec3* dL_dmeans, 		// shape:[G,]
+	glm::vec3* dL_dxyz_offsets, // shape:[I, G,]
 	float* dL_dcolor,
 	float* dL_dcov3D,
 	float* dL_dsh,
+	float* dL_dsh_offsets,
 	glm::vec3* dL_dscale,
 	glm::vec4* dL_drot,
-	float* dL_dopacity)
+	float* dL_dopacity,
+	float* dL_dopacity_offsets,
+	const float* instance_transforms,
+	const float3* xyz_offsets,
+	const float3* sh_offsets )
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
 		return;
 
-	float3 m = means[idx];
+	int instance_idx = idx / G;
+	int point_idx    = idx % G;
+
+	float3 p_orig = means[point_idx];
+	float3 p_offset = xyz_offsets[idx];
+	const float* T = instance_transforms + instance_idx * 16;
+	float3 p_world = transformPoint4x3(p_orig, T);  // 应用实例变换矩阵和偏移
+	p_world.x += p_offset.x;
+	p_world.y += p_offset.y;
+	p_world.z += p_offset.z;
 
 	// Taking care of gradients from the screenspace points
-	float4 m_hom = transformPoint4x4(m, proj);
+	float4 m_hom = transformPoint4x4(p_world, proj);
 	float m_w = 1.0f / (m_hom.w + 0.0000001f);
 
 	// Compute loss gradient w.r.t. 3D means due to gradients of 2D means
 	// from rendering procedure
 	glm::vec3 dL_dmean;
-	float mul1 = (proj[0] * m.x + proj[4] * m.y + proj[8] * m.z + proj[12]) * m_w * m_w;
-	float mul2 = (proj[1] * m.x + proj[5] * m.y + proj[9] * m.z + proj[13]) * m_w * m_w;
+	float mul1 = (proj[0] * p_world.x + proj[4] * p_world.y + proj[8] * p_world.z + proj[12]) * m_w * m_w;
+	float mul2 = (proj[1] * p_world.x + proj[5] * p_world.y + proj[9] * p_world.z + proj[13]) * m_w * m_w;
 	dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
@@ -438,14 +473,19 @@ __global__ void preprocessCUDA(
 	// That's the second part of the mean gradient. Previous computation
 	// of cov2D and following SH conversion also affects it.
 	dL_dmeans[idx] += dL_dmean;
+	dL_dxyz_offsets[idx] += dL_dmean;
 
 	// Compute gradient updates due to computing colors from SHs
-	if (shs)
-		computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
+	if (shs) {
+		glm::vec3 dc_offset = glm::vec3(sh_offsets[idx].x, sh_offsets[idx].y, sh_offsets[idx].z);
+		computeColorFromSH(idx, point_idx, D, M, (glm::vec3*)means, *campos, shs, dc_offset, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh, (glm::vec3*)dL_dsh_offsets);
+	}
 
 	// Compute gradient updates due to computing covariance from scale/rotation
-	if (scales)
-		computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
+	if (scales) {
+		glm::vec4 r_world = transformRotation(rotations[point_idx], T);
+		computeCov3D(idx, scales[point_idx], scale_modifier, r_world, dL_dcov3D, dL_dscale, dL_drot);
+	}
 }
 
 // Backward version of the rendering procedure.
@@ -638,7 +678,7 @@ renderCUDA(
 }
 
 void BACKWARD::preprocess(
-	int P, int D, int M,
+	int P, int G, int D, int M,
 	const float3* means3D,
 	const int* radii,
 	const float* shs,
@@ -657,20 +697,26 @@ void BACKWARD::preprocess(
 	const float* dL_dconic,
 	const float* dL_dinvdepth,
 	float* dL_dopacity,
+	float* dL_dopacity_offsets,
 	glm::vec3* dL_dmean3D,
+	glm::vec3* dL_dxyz_offsets,
 	float* dL_dcolor,
 	float* dL_dcov3D,
 	float* dL_dsh,
+	float* dL_dsh_offsets,
 	glm::vec3* dL_dscale,
 	glm::vec4* dL_drot,
-	bool antialiasing)
+	bool antialiasing,
+	const float* instance_transforms,
+	const float3* xyz_offsets,
+	const float3* sh_offsets)
 {
 	// Propagate gradients for the path of 2D conic matrix computation. 
 	// Somewhat long, thus it is its own kernel rather than being part of 
 	// "preprocess". When done, loss gradient w.r.t. 3D means has been
 	// modified and gradient w.r.t. 3D covariance matrix has been computed.	
 	computeCov2DCUDA << <(P + 255) / 256, 256 >> > (
-		P,
+		P, G,
 		means3D,
 		radii,
 		cov3Ds,
@@ -682,16 +728,21 @@ void BACKWARD::preprocess(
 		opacities,
 		dL_dconic,
 		dL_dopacity,
+		dL_dopacity_offsets,
 		dL_dinvdepth,
 		(float3*)dL_dmean3D,
+		(float3*)dL_dxyz_offsets,
 		dL_dcov3D,
-		antialiasing);
+		antialiasing,
+		instance_transforms,
+		(float3*)xyz_offsets
+	);
 
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
 	// matrix gradients to scale and rotation.
 	preprocessCUDA<NUM_CHANNELS> << < (P + 255) / 256, 256 >> > (
-		P, D, M,
+		P, G, D, M,
 		(float3*)means3D,
 		radii,
 		shs,
@@ -703,12 +754,19 @@ void BACKWARD::preprocess(
 		campos,
 		(float3*)dL_dmean2D,
 		(glm::vec3*)dL_dmean3D,
+		(glm::vec3*)dL_dxyz_offsets,
 		dL_dcolor,
 		dL_dcov3D,
 		dL_dsh,
+		dL_dsh_offsets,
 		dL_dscale,
 		dL_drot,
-		dL_dopacity);
+		dL_dopacity,
+		dL_dopacity_offsets,
+		instance_transforms,
+		(float3*)xyz_offsets,
+		(float3*)sh_offsets
+		);
 }
 
 void BACKWARD::render(

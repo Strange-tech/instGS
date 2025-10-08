@@ -59,13 +59,13 @@ namespace CudaRasterizer
 			bool debug = false);
 
 		static void backward(
-			const int P, int D, int M, int R,
+			const int P, int G, int D, int M, int R,
 			const float* background,
 			const int width, int height,
 			const float* means3D,
 			const float* shs,
-			const float* opacities,
 			const float* colors_precomp,
+			const float* opacities,
 			const float* scales,
 			const float scale_modifier,
 			const float* rotations,
@@ -77,21 +77,27 @@ namespace CudaRasterizer
 			const int* radii,
 			char* geom_buffer,
 			char* binning_buffer,
-			char* image_buffer,
+			char* img_buffer,
 			const float* dL_dpix,
 			const float* dL_invdepths,
 			float* dL_dmean2D,
 			float* dL_dconic,
 			float* dL_dopacity,
+			float* dL_dopacity_offsets,
 			float* dL_dcolor,
 			float* dL_dinvdepth,
 			float* dL_dmean3D,
+			float* dL_dxyz_offsets,
 			float* dL_dcov3D,
 			float* dL_dsh,
+			float* dL_dsh_offsets,
 			float* dL_dscale,
 			float* dL_drot,
 			bool antialiasing,
-			bool debug);
+			bool debug,
+			const float* instance_transforms,
+			const float* xyz_offsets,
+			const float* sh_offsets);
 	};
 };
 

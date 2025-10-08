@@ -14,7 +14,7 @@ from torchvision.utils import save_image
 import time
 
 
-SCENE_NAME = "dongsheng/15"
+SCENE_NAME = "tomato"
 
 
 def sizeof_tensor(t: torch.Tensor):
@@ -45,6 +45,12 @@ if __name__ == "__main__":
     for k, model in model_dict.items():
         template_gs = InstGaussianModel(sh_degree=3)
         template_gs.restore(model_args=model, training_args=None)
+
+        template_gs.instancing()
+        template_gs.save_ply(
+            f"./output/{SCENE_NAME}/inst_gs_{template_gs.template_id}.ply",
+            instancing=True,
+        )
         break
 
     parser = ArgumentParser(description="Rendering script for Splat-n-Replace")
