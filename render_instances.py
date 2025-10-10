@@ -79,53 +79,53 @@ if __name__ == "__main__":
             compress(opacity_offset, threshold=1e-8)
         all_template_gs.append(template_gs)
 
-    bg_gaussians = GaussianModel(sh_degree=3)
-    bg_gaussians.load_ply(f"./data/{SCENE_NAME}/seg_inst/bg.ply")
+    # bg_gaussians = GaussianModel(sh_degree=3)
+    # bg_gaussians.load_ply(f"./data/{SCENE_NAME}/seg_inst/bg.ply")
 
-    parser = ArgumentParser(description="Rendering script for Splat-n-Replace")
-    lp = ModelParams(parser)
-    op = OptimizationParams(parser)
-    pp = PipelineParams(parser)
-    args = parser.parse_args(sys.argv[1:])
+    # parser = ArgumentParser(description="Rendering script for Splat-n-Replace")
+    # lp = ModelParams(parser)
+    # op = OptimizationParams(parser)
+    # pp = PipelineParams(parser)
+    # args = parser.parse_args(sys.argv[1:])
 
-    args.source_path = f"./data/{SCENE_NAME}"
-    args.model_path = f"./output/{SCENE_NAME}"
+    # args.source_path = f"./data/{SCENE_NAME}"
+    # args.model_path = f"./output/{SCENE_NAME}"
 
-    background = torch.tensor([1, 1, 1], dtype=torch.float32, device="cuda")
+    # background = torch.tensor([1, 1, 1], dtype=torch.float32, device="cuda")
 
-    scene = InstScene(lp.extract(args), all_template_gs, shuffle=False)
-    cameras = scene.getTrainCameras()
+    # scene = InstScene(lp.extract(args), all_template_gs, shuffle=False)
+    # cameras = scene.getTrainCameras()
 
-    for temp_gs in all_template_gs:
-        temp_gs.instancing()
-        temp_gs.save_ply(
-            f"./output/{SCENE_NAME}/inst_gs_{temp_gs.template_id}.ply",
-            instancing=True,
-        )
+    # for temp_gs in all_template_gs:
+    #     temp_gs.instancing()
+    #     temp_gs.save_ply(
+    #         f"./output/{SCENE_NAME}/inst_gs_{temp_gs.template_id}.ply",
+    #         instancing=True,
+    #     )
 
-    save_path = f"./output/{SCENE_NAME}/rendered_images"
-    os.makedirs(save_path, exist_ok=True)
+    # save_path = f"./output/{SCENE_NAME}/rendered_images"
+    # os.makedirs(save_path, exist_ok=True)
 
-    for idx, view in enumerate(cameras):
-        render_img = instanced_render(
-            view, all_template_gs, bg_gaussians, pp.extract(args), background
-        )["render"]
-        save_image(
-            render_img,
-            f"{save_path}/{idx}.jpg",
-        )
+    # for idx, view in enumerate(cameras):
+    #     render_img = instanced_render(
+    #         view, all_template_gs, bg_gaussians, pp.extract(args), background
+    #     )["render"]
+    #     save_image(
+    #         render_img,
+    #         f"{save_path}/{idx}.jpg",
+    #     )
 
-    save_path = f"./output/{SCENE_NAME}/vanilla_rendered_images"
-    os.makedirs(save_path, exist_ok=True)
+    # save_path = f"./output/{SCENE_NAME}/vanilla_rendered_images"
+    # os.makedirs(save_path, exist_ok=True)
 
-    for idx, view in enumerate(cameras):
-        render_img = render(view, vanilla_gaussians, pp.extract(args), background)[
-            "render"
-        ]
-        save_image(
-            render_img,
-            f"{save_path}/{idx}.jpg",
-        )
+    # for idx, view in enumerate(cameras):
+    #     render_img = render(view, vanilla_gaussians, pp.extract(args), background)[
+    #         "render"
+    #     ]
+    #     save_image(
+    #         render_img,
+    #         f"{save_path}/{idx}.jpg",
+    #     )
 
     # All done
     print("\nRender complete.")

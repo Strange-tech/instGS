@@ -90,10 +90,10 @@ if __name__ == "__main__":
             )["render"]
             render_time = time.time() - start_time
             avg_render_time += render_time
-            # save_image(
-            #     render_img,
-            #     f"{save_path}/{idx}.jpg",
-            # )
+            save_image(
+                render_img,
+                f"{save_path}/{idx}.jpg",
+            )
 
     print(f"Total render time for {len(cameras)} views: {avg_render_time:.4f} seconds")
     avg_render_time /= len(cameras)

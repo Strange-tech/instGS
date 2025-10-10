@@ -70,22 +70,22 @@ __forceinline__ __device__ void getRect(const float2 p, int2 ext_rect, uint2& re
 __forceinline__ __device__ glm::vec4 transformRotation(const glm::vec4& q_local, const float* T) {
     // 从 T 提取旋转部分 (3x3)
     glm::mat3 R = glm::mat3(
-        T[0], T[4], T[8],
-        T[1], T[5], T[9],
-        T[2], T[6], T[10]
+        T[0], T[1], T[2],
+        T[4], T[5], T[6],
+        T[8], T[9], T[10]
     );
 
     // 转为四元数
     glm::quat q_T = glm::quat_cast(R);
 
     // 输入四元数
-    glm::quat q_obj = glm::quat(q_local.w, q_local.x, q_local.y, q_local.z);
+    glm::quat q_obj = glm::quat(q_local.x, q_local.y, q_local.z, q_local.w);
 
     // 合成旋转：先应用 T，再应用对象本身的旋转
     glm::quat q_world = q_T * q_obj;
 
     // 返回 vec4 (x,y,z,w)
-    return glm::vec4(q_world.x, q_world.y, q_world.z, q_world.w);
+    return glm::vec4(q_world.w, q_world.x, q_world.y, q_world.z);
 }
 
 __forceinline__ __device__ float3 transformPoint4x3(const float3& p, const float* matrix)

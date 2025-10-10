@@ -1,5 +1,6 @@
 import torch
 from utils.graphics_utils import geom_transform_quat, geom_transform_points
+from pytorch3d.transforms import quaternion_to_matrix, matrix_to_quaternion
 import numpy as np
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -108,7 +109,7 @@ def training(
 
         # offset_loss = 0.0
         for temp_gs in all_temp_gs:
-            # temp_gs.instancing()
+            temp_gs.instancing()
             # offset_loss += temp_gs.offset_loss()
             temp_gs.update_learning_rate(iteration)
             # Every 1000 its we increase the levels of SH up to a maximum degree
@@ -127,7 +128,7 @@ def training(
 
         # start_time = time.time()
         render_pkg = instanced_render(
-            viewpoint_cam, all_temp_gs[0], bg_gs, pipe, background
+            viewpoint_cam, all_temp_gs, bg_gs, pipe, background
         )
         # image, viewspace_point_tensor, visibility_filter, radii = (
         #     render_pkg["render"],
@@ -263,13 +264,14 @@ if __name__ == "__main__":
             # 注意：这里转置了一下，是为了方便与xyz做矩阵乘法
             t = torch.from_numpy(np.array(inst["transform"]).T).float().to("cuda")
             gs._xyz = geom_transform_points(gs.get_xyz, t)
+            # R_local = quaternion_to_matrix(gs.get_rotation)
+            # R_new = t.T[:3, :3] @ R_local
+            # gs._rotation = matrix_to_quaternion(R_new)
             all_instances.append(gs)
             transforms.append(torch.inverse(t))
 
         # 2. 合并所有模型为 shared_model（几何 & shared SH）
         template_gs.merge(all_instances, mode="merge")
-
-        template_gs.save_ply("./tmp/template.ply")
 
         # 3. 为每个实例初始化 SH offset（同 shape）
         xyz_offsets = [
